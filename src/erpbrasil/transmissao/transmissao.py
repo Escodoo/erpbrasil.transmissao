@@ -6,18 +6,43 @@ import os
 import tempfile
 from contextlib import contextmanager
 
+import re
 import requests
 from erpbrasil.assinatura.certificado import ArquivoCertificado
 from lxml import etree
 from requests import Session
 from requests.auth import HTTPBasicAuth
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
-from zeep import Client
+from zeep import Client, Plugin
 from zeep.cache import SqliteCache
 from zeep.transports import Transport
 
 ABC = abc.ABCMeta('ABC', (object,), {})
 
+import logging.config
+
+logging.config.dictConfig({
+    'version': 1,
+    'formatters': {
+        'verbose': {
+            'format': '%(name)s: %(message)s'
+        }
+    },
+    'handlers': {
+        'console': {
+            'level': 'DEBUG',
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'zeep.transports': {
+            'level': 'DEBUG',
+            'propagate': True,
+            'handlers': ['console'],
+        },
+    }
+})
 
 class Transmissao(ABC):
     """
@@ -33,6 +58,37 @@ class Transmissao(ABC):
     def cliente(self):
         pass
 
+class PatchXml(Plugin):
+    def egress(self, envelope, http_headers, operation, binding_options):
+        request_message = etree.tostring(envelope, encoding="unicode")
+        # Check whether envelope contains incorrect XML:
+        if '<soap-env:Body>' in request_message:
+            # request_message = re.sub(r'ns[\d]+:RecepcionarLoteRps', 'RecepcionarLoteRps', request_message)
+            # request_message = re.sub(r'ns[\d]+:xml', 'xml', request_message)
+            # request_message = re.sub(r'xmlns:ns[\d]', 'xmlns', request_message)
+            # request_message = re.sub(r'https', 'http', request_message)
+            # request_message = re.sub(r'http', 'https', request_message)
+            # request_message = re.sub(r'https://schemas.xmlsoap.org/soap/envelope', 'http://schemas.xmlsoap.org/soap/envelope', request_message)
+            # request_message = re.sub(r'http://www.issnetonline.com.br/webservice/nfd',
+            #                          'https://www.issnetonline.com.br/webservice/nfd', request_message)
+            # request_message = re.sub(r'soap-env','soap', request_message)
+
+            request_message = re.sub(r'&lt;','<', request_message)
+            request_message = re.sub(r'&gt;', '>', request_message)
+            request_message = re.sub(r'<ns0:xml>', '<ns0:xml><![CDATA[<?xml version="1.0" encoding="UTF-8"?>',
+                                     request_message)
+            request_message = re.sub(r'</ns0:xml>', ']]></ns0:xml>', request_message)
+
+            request_message = re.sub(r'<xml>', '<xml><![CDATA[<?xml version="1.0" encoding="UTF-8"?>',
+                                     request_message)
+            request_message = re.sub(r'</xml>', ']]></xml>', request_message)
+
+            parser = etree.XMLParser()
+            new_envelope = etree.XML(request_message, parser=parser)
+            return new_envelope, http_headers
+        # If no patching required, return unmodified envelope:
+        else:
+            return envelope, http_headers
 
 class TransmissaoSOAP(Transmissao):
 
@@ -72,8 +128,12 @@ class TransmissaoSOAP(Transmissao):
             transport = Transport(session=session, cache=self._cache)
             self._cliente = Client(
                 url, transport=transport, service_name=service_name,
-                port_name=port_name
+                port_name=port_name, plugins=[PatchXml()]
             )
+
+            # self._cliente.service._binding_options["address"] = 'https://www.issnetonline.com.br/webserviceabrasf/homologacao/servicos.asmx?WSDL'
+
+
             yield self._cliente
             self._cliente = False
 
