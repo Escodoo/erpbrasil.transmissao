@@ -4,6 +4,7 @@
 import abc
 import os
 import tempfile
+import logging.config
 from contextlib import contextmanager
 
 import requests
@@ -21,6 +22,26 @@ from ..monkey_patch.zeep_monkey_patch import apply_zeep_monkey_patches
 apply_zeep_monkey_patches()
 
 ABC = abc.ABCMeta('ABC', (object,), {})
+logging.config.dictConfig({
+            'version': 1,
+            'formatters': {
+                'verbose': {'format': '%(name)s: %(message)s'}
+            },
+            'handlers': {
+                'console': {
+                    'level': 'DEBUG',
+                    'class': 'logging.StreamHandler',
+                    'formatter': 'verbose',
+                },
+            },
+            'loggers': {
+                'zeep.transports': {
+                    'level': 'DEBUG',
+                    'propagate': True,
+                    'handlers': ['console'],
+                },
+            }
+        })
 
 
 class Transmissao(ABC):
